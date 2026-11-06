@@ -1,7 +1,4 @@
-# /// script
-# requires-python = ">=3.10"
-# dependencies = ["mcp>=2.3,<3"]
-# ///
+#!/usr/bin/env python3
 """MCP server that lets Claude read your Claude subscription usage.
 
 Two data sources, both on your own machine:
@@ -13,20 +10,23 @@ Two data sources, both on your own machine:
 2. Token counts: per-response token usage from Claude Code's session logs
    (~/.claude/projects/**/*.jsonl). Claude Code only; chat on claude.ai is not
    logged locally.
+
+Standard library only (Python 3.8+): it speaks MCP's stdio transport directly,
+so there's nothing to install.
 """
 from __future__ import annotations
 
 import json
 import os
+import sys
 import time
+import traceback
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-from mcp.server.mcpserver import MCPServer
-
-mcp = MCPServer("claude-usage")
+VERSION = "0.2.0"
 
 WINDOWS = {"five_hour": "5-hour session window", "seven_day": "7-day weekly window"}
 
@@ -57,7 +57,6 @@ def ago(seconds: float) -> str:
 # --------------------------------------------------------------------------- plan limits
 
 
-@mcp.tool()
 def get_plan_limits() -> dict:
     """Current Claude subscription (Pro/Max) usage limits: percent used of the
     rolling 5-hour window and the 7-day weekly window, and when each resets.
@@ -71,9 +70,9 @@ def get_plan_limits() -> dict:
     if not path.exists():
         return {
             "error": "No usage snapshot yet.",
-            "fix": "Set Claude Code's statusLine to run statusline.py (see README), "
-            "then send one message in Claude Code. Only Pro/Max/Ultra plans "
-            "report plan limits.",
+            "fix": "Plan limits are recorded by Claude Code's status line. Run "
+            "/plan-usage:setup in Claude Code (or see the README), then send one "
+            "message in Claude Code. Only Pro/Max/Ultra plans report plan limits.",
         }
     snap = json.loads(path.read_text())
     now = time.time()
@@ -115,7 +114,6 @@ def get_plan_limits() -> dict:
     return out
 
 
-@mcp.tool()
 def get_plan_limit_history(hours: float = 24) -> dict:
     """How plan-limit usage percentages changed over the last `hours` hours,
     for spotting burn rate (e.g. "5h window went 10% -> 60% in the last hour").
@@ -219,7 +217,6 @@ def add(tot: dict, u: dict) -> None:
     tot["total_tokens"] += i + o + cw + cr
 
 
-@mcp.tool()
 def get_token_usage(
     days: float = 7,
     group_by: Literal["day", "model", "project", "session"] = "day",
@@ -271,5 +268,108 @@ def get_token_usage(
     }
 
 
+# --------------------------------------------------------------------------- MCP stdio
+
+TOOLS = {
+    "get_plan_limits": (get_plan_limits, {"type": "object", "properties": {}}),
+    "get_plan_limit_history": (
+        get_plan_limit_history,
+        {
+            "type": "object",
+            "properties": {
+                "hours": {"type": "number", "default": 24, "description": "How far back to look"}
+            },
+        },
+    ),
+    "get_token_usage": (
+        get_token_usage,
+        {
+            "type": "object",
+            "properties": {
+                "days": {"type": "number", "default": 7, "description": "How many days back"},
+                "group_by": {
+                    "type": "string",
+                    "enum": ["day", "model", "project", "session"],
+                    "default": "day",
+                },
+                "project": {
+                    "type": "string",
+                    "description": "Only projects whose path contains this text",
+                },
+                "limit": {"type": "integer", "default": 30, "description": "Max groups returned"},
+            },
+        },
+    ),
+}
+
+PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]
+
+
+def describe(fn) -> str:
+    return " ".join((fn.__doc__ or "").split())
+
+
+def handle(method: str, params: dict):
+    if method == "initialize":
+        asked = params.get("protocolVersion")
+        return {
+            "protocolVersion": asked if asked in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0],
+            "capabilities": {"tools": {}},
+            "serverInfo": {"name": "plan-usage", "version": VERSION},
+        }
+    if method == "ping":
+        return {}
+    if method == "tools/list":
+        return {
+            "tools": [
+                {"name": name, "description": describe(fn), "inputSchema": schema}
+                for name, (fn, schema) in TOOLS.items()
+            ]
+        }
+    if method == "tools/call":
+        name = params.get("name")
+        if name not in TOOLS:
+            raise ValueError(f"Unknown tool: {name}")
+        fn, schema = TOOLS[name]
+        args = {k: v for k, v in (params.get("arguments") or {}).items() if k in schema["properties"]}
+        try:
+            result, is_error = fn(**args), False
+        except Exception as e:
+            result, is_error = {"error": f"{type(e).__name__}: {e}"}, True
+        return {
+            "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
+            "isError": is_error or "error" in result,
+        }
+    raise LookupError(f"Method not found: {method}")
+
+
+def send(msg: dict) -> None:
+    sys.stdout.write(json.dumps(msg) + "\n")
+    sys.stdout.flush()
+
+
+def main() -> None:
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            send({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}})
+            continue
+        if "id" not in msg or "method" not in msg:
+            continue  # notifications and responses need no reply
+        try:
+            result = handle(msg["method"], msg.get("params") or {})
+            send({"jsonrpc": "2.0", "id": msg["id"], "result": result})
+        except LookupError as e:
+            send({"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": str(e)}})
+        except ValueError as e:
+            send({"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32602, "message": str(e)}})
+        except Exception as e:
+            traceback.print_exc(file=sys.stderr)
+            send({"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32603, "message": str(e)}})
+
+
 if __name__ == "__main__":
-    mcp.run()
+    main()

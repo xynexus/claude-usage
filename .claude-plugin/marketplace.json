@@ -1,0 +1,14 @@
+{
+  "name": "plan-usage",
+  "description": "Lets Claude read your Claude subscription usage limits and Claude Code token counts.",
+  "owner": {
+    "name": "xynexus"
+  },
+  "plugins": [
+    {
+      "name": "plan-usage",
+      "source": "./",
+      "description": "Lets Claude read your Claude subscription usage limits and Claude Code token counts."
+    }
+  ]
+}

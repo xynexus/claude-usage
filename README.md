@@ -1,7 +1,8 @@
-# claude-usage
+# plan-usage
 
-An MCP server that lets Claude see your Claude subscription usage. Ask things like
-"how much of my weekly limit is left?" or "which project used the most tokens this week?"
+A Claude plugin that lets Claude see your Claude subscription usage. Ask things like
+"how much of my weekly limit is left?" or "which project used the most tokens this week?",
+or run `/plan-usage:usage`.
 
 ## What it reports
 
@@ -12,82 +13,60 @@ An MCP server that lets Claude see your Claude subscription usage. Ask things li
 | `get_token_usage` | Input, output and cache tokens by day, model, project or session | `~/.claude/projects/**/*.jsonl` | Claude Code only |
 
 The plan limits are the same numbers `/usage` and claude.ai's usage page show. Claude Code
-only hands them to its status line after a response, so a snapshot can be out of date. When
-you ask from inside Claude Code it is current; from Claude Desktop it's as of your last
-Claude Code message, and the tool reports how old it is.
+receives them with each response and passes them to its status line, which is where this
+plugin records them. So a reading is as fresh as your last Claude Code response, and the
+tool always says how old it is.
 
-## Quick install
+## Install
 
-Needs [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`),
-which installs the `mcp` package automatically. Then:
+Needs Python 3 (`python3`). Nothing else: the server uses only the standard library.
+
+**Claude Desktop or claude.ai:** Customize → Plugins → Add → **Upload plugin**, and choose
+`plan-usage.zip`. Or **Add marketplace** with `xynexus/claude-usage` to get updates (for a
+private repo, connect GitHub when asked). The plugin then also reaches Claude Code on the
+same account as a synced plugin.
+
+**Claude Code:**
+
+```
+/plugin install plan-usage --marketplace xynexus/claude-usage
+```
+
+**Then, once, in Claude Code:** run `/plan-usage:setup`. Plugins can't set the status line
+themselves, so this points it at the recorder, keeping any status line you already have,
+and backs up `settings.json` first. Send one message afterwards and your plan limits are
+recorded. `/plan-usage:setup remove` undoes it.
+
+## Where it works
+
+| | Claude Code | Cowork | Desktop / claude.ai chat |
+|---|---|---|---|
+| Plan limits and token tools | Yes | Yes, in Cowork sessions on your computer | No: chat doesn't run local servers from plugins |
+| `/plan-usage:usage` | Yes | Yes | Loads as a skill, but has no tools to call |
+
+For regular Desktop chat, add the server to Desktop's own config instead. From an unzipped
+copy or clone you'll keep:
 
 ```bash
-git clone https://github.com/xynexus/claude-usage.git ~/claude-usage
+python3 install.py
 ```
 
-```bash
-python3 ~/claude-usage/install.py
-```
+Restart Claude Desktop afterwards. `python3 install.py --uninstall` removes it.
 
-It adds the server to Claude Desktop and Claude Code and sets up the status line (keeping
-any status line you already have). Each config file it changes is backed up first.
-`python3 install.py --uninstall` undoes it. Restart Claude Desktop afterwards.
+## Upgrading from the stand-alone version
 
-## Manual setup
+If you used the earlier `install.py` that registered `claude-usage` with uv:
 
-The same steps by hand. Put this folder somewhere permanent, e.g. `~/claude-usage`.
-
-### 1. Record plan limits with the status line
-
-Add to `~/.claude/settings.json`:
-
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "python3 ~/claude-usage/statusline.py"
-  }
-}
-```
-
-That shows `[Opus] | 5h: 24% | 7d: 41%` at the bottom of Claude Code. If you already have a
-status line, keep it by chaining it; it gets the same input and its output is shown instead:
-
-```json
-"command": "python3 ~/claude-usage/statusline.py --then '~/.claude/statusline.sh'"
-```
-
-Send a message in Claude Code once, and `~/.claude/usage-mcp/rate_limits.json` appears.
-
-### 2. Register the MCP server
-
-Claude Code, for all your projects:
-
-```bash
-claude mcp add --scope user claude-usage -- uv run ~/claude-usage/server.py
-```
-
-Claude Desktop: Settings → Developer → Edit Config, and add the server below. Use full paths;
-Desktop doesn't expand `~` or see your shell's PATH. `which uv` prints the uv path.
-
-```json
-{
-  "mcpServers": {
-    "claude-usage": {
-      "command": "/Users/YOU/.local/bin/uv",
-      "args": ["run", "/Users/YOU/claude-usage/server.py"]
-    }
-  }
-}
-```
-
-Restart Claude Desktop, then ask "what's my Claude usage?"
+- `/plan-usage:setup` moves your status line over and removes the old Claude Code server, so
+  the tools don't appear twice.
+- Re-run `python3 install.py` from the new version to replace the old Desktop chat entry.
 
 ## Notes
 
 - Plan limits only exist on Pro, Max and Ultra plans. API-key users get no `rate_limits`.
-- If you set `CLAUDE_CONFIG_DIR`, both scripts use it instead of `~/.claude`.
-- Claude Code writes each response to the log several times; `get_token_usage` dedupes by
+- If you set `CLAUDE_CONFIG_DIR`, everything uses it instead of `~/.claude`. Recorded data
+  lives in `~/.claude/usage-mcp/`.
+- Claude Code writes each response to its log several times; `get_token_usage` dedupes by
   message and request id so nothing is counted twice.
 - Cache reads usually make up most of the "total" tokens. They're re-reads of context
   already sent and are much cheaper to serve, so input + output + cache creation is a better

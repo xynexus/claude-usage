@@ -1,29 +1,26 @@
 #!/usr/bin/env python3
-"""Install claude-usage for Claude Desktop and Claude Code on this computer.
+"""Add the plan-usage MCP server to regular Claude Desktop chat.
 
-Run from the cloned repo:  python3 install.py
-It uses the repo where it is (don't move it afterwards) and:
-  1. adds the MCP server to Claude Desktop's config,
-  2. registers it with Claude Code (if the `claude` command is installed),
-  3. sets Claude Code's status line to record plan limits, keeping any existing
-     status line by chaining it.
-Every config file it changes is backed up first as <name>.bak-<timestamp>.
-Run with --uninstall to undo steps 1-3.
+The plugin covers Claude Code and Cowork, but Desktop chat doesn't load local
+MCP servers from plugins, so chat needs an entry in claude_desktop_config.json.
+Run from a folder you'll keep (the config points at server.py here):
+
+    python3 install.py              add it (backs up the config first)
+    python3 install.py --uninstall  remove it
+
+Restart Claude Desktop afterwards.
 """
 import json
 import os
 import platform
-import shlex
 import shutil
-import subprocess
 import sys
 import time
 from pathlib import Path
 
-NAME = "claude-usage"
-HERE = Path(__file__).resolve().parent
-SERVER = HERE / "server.py"
-STATUSLINE = HERE / "statusline.py"
+NAME = "plan-usage"
+LEGACY = "claude-usage"  # name used by the earlier install.py
+SERVER = Path(__file__).resolve().parent / "server.py"
 
 
 def desktop_config() -> Path:
@@ -33,11 +30,6 @@ def desktop_config() -> Path:
     if system == "Windows":
         return Path(os.environ["APPDATA"]) / "Claude/claude_desktop_config.json"
     return Path.home() / ".config/Claude/claude_desktop_config.json"
-
-
-def claude_settings() -> Path:
-    base = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
-    return base / "settings.json"
 
 
 def load(path: Path) -> dict:
@@ -55,93 +47,30 @@ def save(path: Path, data: dict) -> None:
             n += 1
             backup = path.with_name(f"{path.name}.bak-{stamp}-{n}")
         shutil.copy2(path, backup)
-        print(f"  backed up {path.name} -> {backup.name}")
+        print(f"Backed up {path.name} to {backup.name}")
     path.write_text(json.dumps(data, indent=2) + "\n")
 
 
-def find_uv() -> str:
-    uv = shutil.which("uv")
-    for candidate in (Path.home() / ".local/bin/uv", Path.home() / ".cargo/bin/uv", Path("/opt/homebrew/bin/uv")):
-        if not uv and candidate.exists():
-            uv = str(candidate)
-    if not uv:
-        sys.exit(
-            "uv is not installed. Install it, then run this again:\n"
-            "  macOS/Linux: curl -LsSf https://astral.sh/uv/install.sh | sh\n"
-            '  Windows:     powershell -c "irm https://astral.sh/uv/install.ps1 | iex"'
-        )
-    return str(Path(uv).resolve())
-
-
-def our_statusline(existing: str | None) -> str:
-    py = "python3" if platform.system() != "Windows" else "python"
-    cmd = f"{py} {shlex.quote(str(STATUSLINE))}"
-    if existing:
-        cmd += f" --then {shlex.quote(existing)}"
-    return cmd
-
-
-def install() -> None:
-    uv = find_uv()
-
-    print("1. Claude Desktop")
+def main() -> None:
     path = desktop_config()
     cfg = load(path)
-    cfg.setdefault("mcpServers", {})[NAME] = {"command": uv, "args": ["run", str(SERVER)]}
-    save(path, cfg)
-    print(f"  added '{NAME}' to {path}")
-
-    print("2. Claude Code MCP server")
-    claude = shutil.which("claude")
-    if claude:
-        subprocess.run([claude, "mcp", "remove", "--scope", "user", NAME], capture_output=True)
-        r = subprocess.run(
-            [claude, "mcp", "add", "--scope", "user", NAME, "--", uv, "run", str(SERVER)],
-            capture_output=True, text=True,
-        )
-        print("  " + (r.stdout or r.stderr).strip())
-    else:
-        print("  `claude` command not found; skipped (Claude Desktop is set up regardless)")
-
-    print("3. Claude Code status line")
-    path = claude_settings()
-    settings = load(path)
-    current = (settings.get("statusLine") or {}).get("command")
-    if current and str(STATUSLINE) in current:
-        print("  already set")
-    else:
-        settings["statusLine"] = {"type": "command", "command": our_statusline(current)}
-        save(path, settings)
-        print(f"  set statusLine{' (chained to your existing one)' if current else ''}")
-
-    print(
-        "\nDone. Restart Claude Desktop, then send one message in Claude Code so your plan\n"
-        "limits get recorded. After that, ask Claude: \"what's my usage?\""
-    )
-
-
-def uninstall() -> None:
-    path = desktop_config()
-    cfg = load(path)
-    if NAME in cfg.get("mcpServers", {}):
-        del cfg["mcpServers"][NAME]
+    servers = cfg.setdefault("mcpServers", {})
+    if "--uninstall" in sys.argv:
+        removed = [n for n in (NAME, LEGACY) if servers.pop(n, None) is not None]
+        if not removed:
+            print("plan-usage isn't in the Claude Desktop config.")
+            return
         save(path, cfg)
-        print(f"removed from {path}")
-    if shutil.which("claude"):
-        subprocess.run(["claude", "mcp", "remove", "--scope", "user", NAME], capture_output=True)
-        print("removed from Claude Code")
-    path = claude_settings()
-    settings = load(path)
-    cmd = (settings.get("statusLine") or {}).get("command", "")
-    if str(STATUSLINE) in cmd:
-        parts = shlex.split(cmd)
-        if "--then" in parts:
-            settings["statusLine"]["command"] = parts[parts.index("--then") + 1]
-        else:
-            del settings["statusLine"]
-        save(path, settings)
-        print("restored status line")
+        print(f"Removed {', '.join(removed)} from {path}")
+    else:
+        # Desktop doesn't see your shell's PATH, so use this Python's full path.
+        servers[NAME] = {"command": sys.executable, "args": [str(SERVER)]}
+        if servers.pop(LEGACY, None) is not None:
+            print(f"Replaced the older '{LEGACY}' entry")
+        save(path, cfg)
+        print(f"Added plan-usage to {path}")
+    print("Restart Claude Desktop to apply.")
 
 
 if __name__ == "__main__":
-    uninstall() if "--uninstall" in sys.argv else install()
+    main()

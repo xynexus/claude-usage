@@ -1,0 +1,9 @@
+{
+  "name": "plan-usage",
+  "version": "0.2.0",
+  "description": "Lets Claude read your Claude subscription usage: % used of the 5-hour and weekly plan limits, and Claude Code token counts by day, model, project or session.",
+  "author": { "name": "xynexus" },
+  "repository": "https://github.com/xynexus/claude-usage",
+  "license": "MIT",
+  "keywords": ["usage", "rate limits", "tokens", "subscription", "mcp"]
+}
