@@ -16,11 +16,22 @@ only hands them to its status line after a response, so a snapshot can be out of
 you ask from inside Claude Code it is current; from Claude Desktop it's as of your last
 Claude Code message, and the tool reports how old it is.
 
-## Setup
+## Quick install
 
 Needs [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`),
-which installs the `mcp` package automatically. Put this folder somewhere permanent, e.g.
-`~/claude-usage-mcp`.
+which installs the `mcp` package automatically. Clone this repo somewhere permanent, then:
+
+```bash
+python3 install.py
+```
+
+It adds the server to Claude Desktop and Claude Code and sets up the status line (keeping
+any status line you already have). Each config file it changes is backed up first.
+`python3 install.py --uninstall` undoes it. Restart Claude Desktop afterwards.
+
+## Manual setup
+
+The same steps by hand. Put this folder somewhere permanent, e.g. `~/claude-usage-mcp`.
 
 ### 1. Record plan limits with the status line
 
