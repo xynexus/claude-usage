@@ -1,4 +1,4 @@
-# claude-usage-mcp
+# claude-usage
 
 An MCP server that lets Claude see your Claude subscription usage. Ask things like
 "how much of my weekly limit is left?" or "which project used the most tokens this week?"
@@ -19,10 +19,14 @@ Claude Code message, and the tool reports how old it is.
 ## Quick install
 
 Needs [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`),
-which installs the `mcp` package automatically. Clone this repo somewhere permanent, then:
+which installs the `mcp` package automatically. Then:
 
 ```bash
-python3 install.py
+git clone https://github.com/xynexus/claude-usage.git ~/claude-usage
+```
+
+```bash
+python3 ~/claude-usage/install.py
 ```
 
 It adds the server to Claude Desktop and Claude Code and sets up the status line (keeping
@@ -31,7 +35,7 @@ any status line you already have). Each config file it changes is backed up firs
 
 ## Manual setup
 
-The same steps by hand. Put this folder somewhere permanent, e.g. `~/claude-usage-mcp`.
+The same steps by hand. Put this folder somewhere permanent, e.g. `~/claude-usage`.
 
 ### 1. Record plan limits with the status line
 
@@ -41,7 +45,7 @@ Add to `~/.claude/settings.json`:
 {
   "statusLine": {
     "type": "command",
-    "command": "python3 ~/claude-usage-mcp/statusline.py"
+    "command": "python3 ~/claude-usage/statusline.py"
   }
 }
 ```
@@ -50,7 +54,7 @@ That shows `[Opus] | 5h: 24% | 7d: 41%` at the bottom of Claude Code. If you alr
 status line, keep it by chaining it; it gets the same input and its output is shown instead:
 
 ```json
-"command": "python3 ~/claude-usage-mcp/statusline.py --then '~/.claude/statusline.sh'"
+"command": "python3 ~/claude-usage/statusline.py --then '~/.claude/statusline.sh'"
 ```
 
 Send a message in Claude Code once, and `~/.claude/usage-mcp/rate_limits.json` appears.
@@ -60,7 +64,7 @@ Send a message in Claude Code once, and `~/.claude/usage-mcp/rate_limits.json` a
 Claude Code, for all your projects:
 
 ```bash
-claude mcp add --scope user claude-usage -- uv run ~/claude-usage-mcp/server.py
+claude mcp add --scope user claude-usage -- uv run ~/claude-usage/server.py
 ```
 
 Claude Desktop: Settings → Developer → Edit Config, and add the server below. Use full paths;
@@ -71,7 +75,7 @@ Desktop doesn't expand `~` or see your shell's PATH. `which uv` prints the uv pa
   "mcpServers": {
     "claude-usage": {
       "command": "/Users/YOU/.local/bin/uv",
-      "args": ["run", "/Users/YOU/claude-usage-mcp/server.py"]
+      "args": ["run", "/Users/YOU/claude-usage/server.py"]
     }
   }
 }

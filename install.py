@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install claude-usage-mcp for Claude Desktop and Claude Code on this computer.
+"""Install claude-usage for Claude Desktop and Claude Code on this computer.
 
 Run from the cloned repo:  python3 install.py
 It uses the repo where it is (don't move it afterwards) and:
